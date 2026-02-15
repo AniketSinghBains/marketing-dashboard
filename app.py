@@ -157,11 +157,52 @@ if user["role"] == "Admin":
 else:
     st.warning("Only Admin can access AI Forecast")
 
-# ---------------- PDF REPORT WITH LOGO AND GRAPHS ----------------
+# ---------------- PDF REPORT WITH USER INPUT AND GRAPHS ----------------
 st.markdown("---")
-st.subheader("📄 Download PDF Report")
+st.subheader("📄 Generate Professional PDF Report")
 
-def generate_pdf(df, logo_path="logo.png"):
+# Step 1: Ask for inputs before generating report
+report_company = st.text_input("Enter Company Name", value=user['company'])
+report_team_lead = st.text_input("Enter Team Lead Name", value=user['team_lead'])
+
+if st.button("Generate Report"):
+    import matplotlib.pyplot as plt
+
+    # Create temporary graph images
+    bar_path = "temp_bar.png"
+    donut_path = "temp_donut.png"
+    line_path = "temp_line.png"
+
+    # Bar chart: Impressions vs Clicks
+    bar_fig, ax = plt.subplots(figsize=(6,4))
+    bar_data = filtered_df.groupby('channel')[['impressions','clicks']].sum()
+    bar_data.plot(kind='bar', ax=ax, color=['#1f77b4','#ff7f0e'])
+    ax.set_title("Impressions vs Clicks per Channel")
+    plt.tight_layout()
+    bar_fig.savefig(bar_path)
+    plt.close(bar_fig)
+
+    # Donut chart: Conversions distribution
+    donut_fig, ax = plt.subplots(figsize=(6,4))
+    donut_data = filtered_df.groupby('channel')['conversions'].sum()
+    ax.pie(donut_data, labels=donut_data.index, autopct='%1.1f%%', startangle=90, wedgeprops={'width':0.4})
+    ax.set_title("Conversions Distribution by Channel")
+    plt.tight_layout()
+    donut_fig.savefig(donut_path)
+    plt.close(donut_fig)
+
+    # Line chart: Revenue trend
+    line_fig, ax = plt.subplots(figsize=(6,4))
+    rev_data = filtered_df.groupby('date')['revenue'].sum()
+    ax.plot(rev_data.index, rev_data.values, marker='o', color='#2ca02c')
+    ax.set_title("Revenue Trend Over Time")
+    ax.set_ylabel("Revenue")
+    plt.xticks(rotation=45)
+    plt.tight_layout()
+    line_fig.savefig(line_path)
+    plt.close(line_fig)
+
+    # Generate PDF
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(buffer)
     styles = getSampleStyleSheet()
@@ -169,18 +210,32 @@ def generate_pdf(df, logo_path="logo.png"):
 
     # Logo
     try:
-        logo = PILImage.open(logo_path)
+        logo = PILImage.open("logo.png")
         logo.save("temp_logo.png")
         elements.append(Image("temp_logo.png", width=120, height=50))
     except:
         pass
 
-    elements.append(Paragraph(f"{user['company']} – Marketing Intelligence Report", styles['Title']))
-    elements.append(Paragraph(f"Team Lead: {user['team_lead']}", styles['Normal']))
+    elements.append(Paragraph(f"{report_company} – Marketing Intelligence Report", styles['Title']))
+    elements.append(Paragraph(f"Team Lead: {report_team_lead}", styles['Normal']))
     elements.append(Spacer(1,12))
 
-    # Table
-    table_data = [df.columns.tolist()] + df.values.tolist()
+    # Add graphs
+    elements.append(Paragraph("📊 Impressions vs Clicks", styles['Heading2']))
+    elements.append(Image(bar_path, width=400, height=250))
+    elements.append(Spacer(1,12))
+
+    elements.append(Paragraph("📊 Conversions Distribution", styles['Heading2']))
+    elements.append(Image(donut_path, width=400, height=250))
+    elements.append(Spacer(1,12))
+
+    elements.append(Paragraph("📊 Revenue Trend Over Time", styles['Heading2']))
+    elements.append(Image(line_path, width=400, height=250))
+    elements.append(Spacer(1,12))
+
+    # Campaign table
+    elements.append(Paragraph("📋 Campaign Data Table", styles['Heading2']))
+    table_data = [filtered_df.columns.tolist()] + filtered_df.values.tolist()
     table = Table(table_data, hAlign='LEFT')
     table.setStyle([
         ('BACKGROUND',(0,0),(-1,0),colors.grey),
@@ -188,10 +243,13 @@ def generate_pdf(df, logo_path="logo.png"):
         ('GRID',(0,0),(-1,-1),1,colors.black)
     ])
     elements.append(table)
+
     doc.build(elements)
     buffer.seek(0)
-    return buffer
-
-if st.button("Download PDF"):
-    pdf_file = generate_pdf(filtered_df)
-    st.download_button(label="Download PDF", data=pdf_file, file_name="Marketing_Report.pdf", mime="application/pdf")
+    st.success("Report Generated Successfully ✅")
+    st.download_button(
+        label="Download PDF Report",
+        data=buffer,
+        file_name="Marketing_Report.pdf",
+        mime="application/pdf"
+    )
