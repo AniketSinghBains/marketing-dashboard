@@ -9,7 +9,7 @@ from datetime import datetime
 import pickle
 import io
 from PIL import Image as PILImage
-import matplotlib.pyplot as plt  # ✅ Top pe import
+import matplotlib.pyplot as plt
 
 # ---------------- PAGE CONFIG ----------------
 st.set_page_config(page_title="Marketing Intelligence Suite", layout="wide")
@@ -38,7 +38,7 @@ if st.session_state.user is None:
 
 user = st.session_state.user
 
-# ---------------- SIDEBAR USER INFO ----------------
+# ---------------- SIDEBAR ----------------
 st.sidebar.markdown("## 👤 User Info")
 st.sidebar.write(f"**Company:** {user['company']}")
 st.sidebar.write(f"**Role:** {user['role']}")
@@ -48,7 +48,7 @@ if st.sidebar.button("Logout"):
     st.session_state.user = None
     st.rerun()
 
-# ---------------- DARK UI ----------------
+# ---------------- DARK THEME UI ----------------
 st.markdown("""
 <style>
 .stApp {background-color:#0E1117;color:#E6EDF3;}
@@ -67,23 +67,28 @@ st.markdown(f"""
 </div>
 """, unsafe_allow_html=True)
 
-# ---------------- LOAD CSV ----------------
-df = pd.read_csv("campaigns.csv")
-df['date'] = pd.to_datetime(df['date'])
+# ---------------- LOAD DATA ----------------
+@st.cache_data
+def load_data():
+    df = pd.read_csv("campaigns.csv")
+    df['date'] = pd.to_datetime(df['date'])
+    return df
 
-# ---------------- SIDEBAR FILTERS ----------------
+df = load_data()
+
+# ---------------- FILTERS ----------------
 st.sidebar.markdown("## 🎛 Filters")
 channels = df['channel'].unique().tolist()
 selected_channel = st.sidebar.selectbox("Select Channel", ["All"] + channels)
 start_date, end_date = st.sidebar.date_input(
-    "Select Date Range", 
+    "Select Date Range",
     [df['date'].min(), df['date'].max()]
 )
 
 # Filter dataframe
 filtered_df = df[
     ((df['channel'] == selected_channel) | (selected_channel == "All")) &
-    (df['date'] >= pd.to_datetime(start_date)) & 
+    (df['date'] >= pd.to_datetime(start_date)) &
     (df['date'] <= pd.to_datetime(end_date))
 ]
 
@@ -96,21 +101,22 @@ total_revenue = filtered_df['revenue'].sum()
 roi = ((total_revenue - total_spend)/total_spend)*100 if total_spend else 0
 
 st.subheader("📊 Funnel Overview")
-col1, col2, col3, col4, col5, col6 = st.columns(6)
-def kpi(title,value): 
+cols = st.columns(6)
+def kpi(title, value): 
     st.markdown(f"<div class='kpi-card'><div class='kpi-title'>{title}</div><div class='kpi-value'>{value}</div></div>", unsafe_allow_html=True)
-with col1: kpi("Impressions", f"{total_impressions:,}")
-with col2: kpi("Clicks", f"{total_clicks:,}")
-with col3: kpi("Conversions", f"{total_conversions:,}")
-with col4: kpi("Spend", f"₹ {total_spend:,.0f}")
-with col5: kpi("Revenue", f"₹ {total_revenue:,.0f}")
-with col6: kpi("ROI (%)", f"{roi:.2f}%")
 
-# ---------------- GRAPHS ----------------
+with cols[0]: kpi("Impressions", f"{total_impressions:,}")
+with cols[1]: kpi("Clicks", f"{total_clicks:,}")
+with cols[2]: kpi("Conversions", f"{total_conversions:,}")
+with cols[3]: kpi("Spend", f"₹ {total_spend:,.0f}")
+with cols[4]: kpi("Revenue", f"₹ {total_revenue:,.0f}")
+with cols[5]: kpi("ROI (%)", f"{roi:.2f}%")
+
+# ---------------- CHARTS ----------------
 st.markdown("---")
 st.subheader("📈 Campaign Analysis Charts")
 
-# Bar Chart: Impressions vs Clicks
+# 1️⃣ Bar Chart: Impressions vs Clicks
 bar_fig = px.bar(
     filtered_df.groupby('channel')[['impressions','clicks']].sum().reset_index(),
     x='channel', y=['impressions','clicks'],
@@ -119,21 +125,21 @@ bar_fig = px.bar(
 )
 st.plotly_chart(bar_fig, use_container_width=True)
 
-# Donut Chart: Conversions distribution
-conv_fig = px.pie(
+# 2️⃣ Donut Chart: Conversions distribution
+donut_fig = px.pie(
     filtered_df, values='conversions', names='channel',
     hole=0.5, title="Conversions Distribution by Channel",
     color_discrete_sequence=px.colors.sequential.Agsunset
 )
-st.plotly_chart(conv_fig, use_container_width=True)
+st.plotly_chart(donut_fig, use_container_width=True)
 
-# Line Chart: Revenue trend
-rev_fig = px.line(
+# 3️⃣ Line Chart: Revenue trend
+line_fig = px.line(
     filtered_df.groupby('date')['revenue'].sum().reset_index(),
     x='date', y='revenue', title="Revenue Trend Over Time",
     markers=True, line_shape='spline', color_discrete_sequence=['#00CC96']
 )
-st.plotly_chart(rev_fig, use_container_width=True)
+st.plotly_chart(line_fig, use_container_width=True)
 
 # ---------------- AI FORECAST ----------------
 st.markdown("---")
@@ -156,59 +162,47 @@ if user["role"] == "Admin":
 else:
     st.warning("Only Admin can access AI Forecast")
 
-# ---------------- PDF REPORT WITH USER INPUT AND GRAPHS (Optimized) ----------------
+# ---------------- PDF REPORT ----------------
 st.markdown("---")
-st.subheader("📄 Generate Professional PDF Report")
+st.subheader("📄 Generate PDF Report")
 
-# Use a form to avoid page jumping issues
-with st.form(key='report_form'):
-    report_company = st.text_input("Enter Company Name", value=user['company'])
-    report_team_lead = st.text_input("Enter Team Lead Name", value=user['team_lead'])
-    
-    submit_button = st.form_submit_button(label="Generate Report")
+report_company = st.text_input("Enter Company Name", value=user['company'])
+report_team_lead = st.text_input("Enter Team Lead Name", value=user['team_lead'])
 
-if submit_button:
-    import matplotlib.pyplot as plt
-
-    # Paths for temporary graph images
+if st.button("Generate Report"):
+    # Temporary graph images
     bar_path = "temp_bar.png"
     donut_path = "temp_donut.png"
     line_path = "temp_line.png"
 
-    # ---------------- Create Graphs ----------------
-    # 1️⃣ Bar chart: Impressions vs Clicks
+    # 1️⃣ Bar chart
     bar_fig, ax = plt.subplots(figsize=(6,4))
     bar_data = filtered_df.groupby('channel')[['impressions','clicks']].sum()
     bar_data.plot(kind='bar', ax=ax, color=['#1f77b4','#ff7f0e'])
-    ax.set_title("Impressions vs Clicks per Channel")
-    ax.set_ylabel("Count")
     plt.tight_layout()
     bar_fig.savefig(bar_path)
     plt.close(bar_fig)
 
-    # 2️⃣ Donut chart: Conversions distribution
+    # 2️⃣ Donut chart
     donut_fig, ax = plt.subplots(figsize=(6,4))
     donut_data = filtered_df.groupby('channel')['conversions'].sum()
     ax.pie(donut_data, labels=donut_data.index, autopct='%1.1f%%', startangle=90, wedgeprops={'width':0.4})
-    ax.set_title("Conversions Distribution by Channel")
     plt.tight_layout()
     donut_fig.savefig(donut_path)
     plt.close(donut_fig)
 
-    # 3️⃣ Line chart: Revenue trend
+    # 3️⃣ Line chart
     line_fig, ax = plt.subplots(figsize=(6,4))
     rev_data = filtered_df.groupby('date')['revenue'].sum()
     ax.plot(rev_data.index, rev_data.values, marker='o', color='#2ca02c')
-    ax.set_title("Revenue Trend Over Time")
-    ax.set_ylabel("Revenue")
     plt.xticks(rotation=45)
     plt.tight_layout()
     line_fig.savefig(line_path)
     plt.close(line_fig)
 
-    # ---------------- Generate PDF ----------------
+    # PDF generation
     buffer = io.BytesIO()
-    doc = SimpleDocTemplate(buffer, pagesize=(595,842))  # A4 size
+    doc = SimpleDocTemplate(buffer)
     styles = getSampleStyleSheet()
     elements = []
 
@@ -220,12 +214,11 @@ if submit_button:
     except:
         pass
 
-    elements.append(Spacer(1,12))
     elements.append(Paragraph(f"{report_company} – Marketing Intelligence Report", styles['Title']))
     elements.append(Paragraph(f"Team Lead: {report_team_lead}", styles['Normal']))
     elements.append(Spacer(1,12))
 
-    # Add graphs to PDF
+    # Add charts
     elements.append(Paragraph("📊 Impressions vs Clicks", styles['Heading2']))
     elements.append(Image(bar_path, width=400, height=250))
     elements.append(Spacer(1,12))
@@ -238,7 +231,7 @@ if submit_button:
     elements.append(Image(line_path, width=400, height=250))
     elements.append(Spacer(1,12))
 
-    # Campaign table
+    # Table
     elements.append(Paragraph("📋 Campaign Data Table", styles['Heading2']))
     table_data = [filtered_df.columns.tolist()] + filtered_df.values.tolist()
     table = Table(table_data, hAlign='LEFT')
@@ -251,8 +244,7 @@ if submit_button:
 
     doc.build(elements)
     buffer.seek(0)
-
-    st.success("✅ Report Generated Successfully!")
+    st.success("Report Generated Successfully ✅")
     st.download_button(
         label="Download PDF Report",
         data=buffer,
