@@ -2,11 +2,16 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, Image
 from reportlab.lib.styles import getSampleStyleSheet
+from reportlab.lib import colors
+from reportlab.graphics import renderPDF
+from reportlab.graphics.shapes import Drawing
+from reportlab.graphics.charts.barcharts import VerticalBarChart
 from datetime import datetime
 import pickle
 import io
+from PIL import Image as PILImage
 
 # ---------------- PAGE CONFIG ----------------
 st.set_page_config(page_title="Marketing Intelligence Suite", layout="wide")
@@ -90,15 +95,17 @@ total_clicks = filtered_df['clicks'].sum()
 total_conversions = filtered_df['conversions'].sum()
 total_spend = filtered_df['spend'].sum()
 total_revenue = filtered_df['revenue'].sum()
+roi = ((total_revenue - total_spend)/total_spend)*100 if total_spend else 0
 
 st.subheader("📊 Funnel Overview")
-col1, col2, col3, col4, col5 = st.columns(5)
+col1, col2, col3, col4, col5, col6 = st.columns(6)
 def kpi(title,value): st.markdown(f"<div class='kpi-card'><div class='kpi-title'>{title}</div><div class='kpi-value'>{value}</div></div>", unsafe_allow_html=True)
 with col1: kpi("Impressions", f"{total_impressions:,}")
 with col2: kpi("Clicks", f"{total_clicks:,}")
 with col3: kpi("Conversions", f"{total_conversions:,}")
 with col4: kpi("Spend", f"₹ {total_spend:,.0f}")
 with col5: kpi("Revenue", f"₹ {total_revenue:,.0f}")
+with col6: kpi("ROI (%)", f"{roi:.2f}%")
 
 # ---------------- GRAPHS ----------------
 st.markdown("---")
@@ -150,20 +157,36 @@ if user["role"] == "Admin":
 else:
     st.warning("Only Admin can access AI Forecast")
 
-# ---------------- PDF REPORT ----------------
+# ---------------- PDF REPORT WITH LOGO AND GRAPHS ----------------
 st.markdown("---")
-st.subheader("📄 Download Report")
+st.subheader("📄 Download PDF Report")
 
-def generate_pdf(df):
+def generate_pdf(df, logo_path="logo.png"):
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(buffer)
     styles = getSampleStyleSheet()
     elements = []
+
+    # Logo
+    try:
+        logo = PILImage.open(logo_path)
+        logo.save("temp_logo.png")
+        elements.append(Image("temp_logo.png", width=120, height=50))
+    except:
+        pass
+
     elements.append(Paragraph(f"{user['company']} – Marketing Intelligence Report", styles['Title']))
     elements.append(Paragraph(f"Team Lead: {user['team_lead']}", styles['Normal']))
     elements.append(Spacer(1,12))
+
+    # Table
     table_data = [df.columns.tolist()] + df.values.tolist()
-    table = Table(table_data)
+    table = Table(table_data, hAlign='LEFT')
+    table.setStyle([
+        ('BACKGROUND',(0,0),(-1,0),colors.grey),
+        ('TEXTCOLOR',(0,0),(-1,0),colors.whitesmoke),
+        ('GRID',(0,0),(-1,-1),1,colors.black)
+    ])
     elements.append(table)
     doc.build(elements)
     buffer.seek(0)
