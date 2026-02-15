@@ -162,14 +162,16 @@ if user["role"] == "Admin":
 else:
     st.warning("Only Admin can access AI Forecast")
 
-# ---------------- PDF REPORT ----------------
+# ---------------- PDF REPORT WITH INSIGHTS ----------------
 st.markdown("---")
-st.subheader("📄 Generate PDF Report")
+st.subheader("📄 Generate Enhanced PDF Report with Insights")
 
 report_company = st.text_input("Enter Company Name", value=user['company'])
 report_team_lead = st.text_input("Enter Team Lead Name", value=user['team_lead'])
 
-if st.button("Generate Report"):
+if st.button("Generate Enhanced Report"):
+    import matplotlib.pyplot as plt
+
     # Temporary graph images
     bar_path = "temp_bar.png"
     donut_path = "temp_donut.png"
@@ -200,6 +202,11 @@ if st.button("Generate Report"):
     line_fig.savefig(line_path)
     plt.close(line_fig)
 
+    # Automated insights
+    top_channel = filtered_df.groupby('channel')['revenue'].sum().idxmax()
+    best_day = filtered_df.groupby('date')['revenue'].sum().idxmax().strftime("%d-%b-%Y")
+    max_roi = ((filtered_df['revenue'] - filtered_df['spend'])/filtered_df['spend']).max() * 100 if filtered_df['spend'].sum() else 0
+
     # PDF generation
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(buffer)
@@ -218,7 +225,17 @@ if st.button("Generate Report"):
     elements.append(Paragraph(f"Team Lead: {report_team_lead}", styles['Normal']))
     elements.append(Spacer(1,12))
 
-    # Add charts
+    # Add automated insights summary
+    summary_text = f"""
+    This report provides an overview of marketing performance between {start_date} and {end_date}.
+    ✅ Top Performing Channel: {top_channel}
+    ✅ Highest Revenue Day: {best_day}
+    ✅ Maximum ROI Achieved: {max_roi:.2f}%
+    """
+    elements.append(Paragraph(summary_text, styles['Normal']))
+    elements.append(Spacer(1,12))
+
+    # Add graphs
     elements.append(Paragraph("📊 Impressions vs Clicks", styles['Heading2']))
     elements.append(Image(bar_path, width=400, height=250))
     elements.append(Spacer(1,12))
@@ -246,8 +263,8 @@ if st.button("Generate Report"):
     buffer.seek(0)
     st.success("Report Generated Successfully ✅")
     st.download_button(
-        label="Download PDF Report",
+        label="Download Enhanced PDF Report",
         data=buffer,
-        file_name="Marketing_Report.pdf",
+        file_name="Marketing_Enhanced_Report.pdf",
         mime="application/pdf"
     )
