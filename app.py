@@ -156,29 +156,37 @@ if user["role"] == "Admin":
 else:
     st.warning("Only Admin can access AI Forecast")
 
-# ---------------- PDF REPORT ----------------
+# ---------------- PDF REPORT WITH USER INPUT AND GRAPHS (Optimized) ----------------
 st.markdown("---")
 st.subheader("📄 Generate Professional PDF Report")
 
-report_company = st.text_input("Enter Company Name", value=user['company'])
-report_team_lead = st.text_input("Enter Team Lead Name", value=user['team_lead'])
+# Use a form to avoid page jumping issues
+with st.form(key='report_form'):
+    report_company = st.text_input("Enter Company Name", value=user['company'])
+    report_team_lead = st.text_input("Enter Team Lead Name", value=user['team_lead'])
+    
+    submit_button = st.form_submit_button(label="Generate Report")
 
-if st.button("Generate Report"):
-    # Graph images for PDF
+if submit_button:
+    import matplotlib.pyplot as plt
+
+    # Paths for temporary graph images
     bar_path = "temp_bar.png"
     donut_path = "temp_donut.png"
     line_path = "temp_line.png"
 
-    # Bar chart
+    # ---------------- Create Graphs ----------------
+    # 1️⃣ Bar chart: Impressions vs Clicks
     bar_fig, ax = plt.subplots(figsize=(6,4))
     bar_data = filtered_df.groupby('channel')[['impressions','clicks']].sum()
     bar_data.plot(kind='bar', ax=ax, color=['#1f77b4','#ff7f0e'])
     ax.set_title("Impressions vs Clicks per Channel")
+    ax.set_ylabel("Count")
     plt.tight_layout()
     bar_fig.savefig(bar_path)
     plt.close(bar_fig)
 
-    # Donut chart
+    # 2️⃣ Donut chart: Conversions distribution
     donut_fig, ax = plt.subplots(figsize=(6,4))
     donut_data = filtered_df.groupby('channel')['conversions'].sum()
     ax.pie(donut_data, labels=donut_data.index, autopct='%1.1f%%', startangle=90, wedgeprops={'width':0.4})
@@ -187,7 +195,7 @@ if st.button("Generate Report"):
     donut_fig.savefig(donut_path)
     plt.close(donut_fig)
 
-    # Line chart
+    # 3️⃣ Line chart: Revenue trend
     line_fig, ax = plt.subplots(figsize=(6,4))
     rev_data = filtered_df.groupby('date')['revenue'].sum()
     ax.plot(rev_data.index, rev_data.values, marker='o', color='#2ca02c')
@@ -198,9 +206,9 @@ if st.button("Generate Report"):
     line_fig.savefig(line_path)
     plt.close(line_fig)
 
-    # PDF generation
+    # ---------------- Generate PDF ----------------
     buffer = io.BytesIO()
-    doc = SimpleDocTemplate(buffer)
+    doc = SimpleDocTemplate(buffer, pagesize=(595,842))  # A4 size
     styles = getSampleStyleSheet()
     elements = []
 
@@ -212,11 +220,12 @@ if st.button("Generate Report"):
     except:
         pass
 
+    elements.append(Spacer(1,12))
     elements.append(Paragraph(f"{report_company} – Marketing Intelligence Report", styles['Title']))
     elements.append(Paragraph(f"Team Lead: {report_team_lead}", styles['Normal']))
     elements.append(Spacer(1,12))
 
-    # Add graphs
+    # Add graphs to PDF
     elements.append(Paragraph("📊 Impressions vs Clicks", styles['Heading2']))
     elements.append(Image(bar_path, width=400, height=250))
     elements.append(Spacer(1,12))
@@ -242,7 +251,8 @@ if st.button("Generate Report"):
 
     doc.build(elements)
     buffer.seek(0)
-    st.success("Report Generated Successfully ✅")
+
+    st.success("✅ Report Generated Successfully!")
     st.download_button(
         label="Download PDF Report",
         data=buffer,
