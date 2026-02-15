@@ -162,58 +162,63 @@ if user["role"] == "Admin":
 else:
     st.warning("Only Admin can access AI Forecast")
 
-# ---------------- PDF REPORT WITH INSIGHTS ----------------
+# ---------------- PDF REPORT WITH CLEAN ALIGNMENT ----------------
 st.markdown("---")
-st.subheader("📄 Generate Enhanced PDF Report with Insights")
+st.subheader("📄 Generate Professional PDF Report")
 
 report_company = st.text_input("Enter Company Name", value=user['company'])
 report_team_lead = st.text_input("Enter Team Lead Name", value=user['team_lead'])
 
-if st.button("Generate Enhanced Report"):
-    import matplotlib.pyplot as plt
+if st.button("Generate Report"):
 
-    # Temporary graph images
+    import matplotlib.pyplot as plt
+    import io
+    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, Image
+    from reportlab.lib.styles import getSampleStyleSheet
+    from reportlab.lib import colors
+    from PIL import Image as PILImage
+
+    # ---------------- Temporary Graphs ----------------
     bar_path = "temp_bar.png"
     donut_path = "temp_donut.png"
     line_path = "temp_line.png"
 
-    # 1️⃣ Bar chart
+    # Bar chart: Impressions vs Clicks
     bar_fig, ax = plt.subplots(figsize=(6,4))
     bar_data = filtered_df.groupby('channel')[['impressions','clicks']].sum()
     bar_data.plot(kind='bar', ax=ax, color=['#1f77b4','#ff7f0e'])
+    ax.set_title("Impressions vs Clicks per Channel")
     plt.tight_layout()
     bar_fig.savefig(bar_path)
     plt.close(bar_fig)
 
-    # 2️⃣ Donut chart
+    # Donut chart: Conversions distribution
     donut_fig, ax = plt.subplots(figsize=(6,4))
     donut_data = filtered_df.groupby('channel')['conversions'].sum()
     ax.pie(donut_data, labels=donut_data.index, autopct='%1.1f%%', startangle=90, wedgeprops={'width':0.4})
+    ax.set_title("Conversions Distribution by Channel")
     plt.tight_layout()
     donut_fig.savefig(donut_path)
     plt.close(donut_fig)
 
-    # 3️⃣ Line chart
+    # Line chart: Revenue trend
     line_fig, ax = plt.subplots(figsize=(6,4))
     rev_data = filtered_df.groupby('date')['revenue'].sum()
     ax.plot(rev_data.index, rev_data.values, marker='o', color='#2ca02c')
+    ax.set_title("Revenue Trend Over Time")
+    ax.set_ylabel("Revenue")
     plt.xticks(rotation=45)
     plt.tight_layout()
     line_fig.savefig(line_path)
     plt.close(line_fig)
 
-    # Automated insights
-    top_channel = filtered_df.groupby('channel')['revenue'].sum().idxmax()
-    best_day = filtered_df.groupby('date')['revenue'].sum().idxmax().strftime("%d-%b-%Y")
-    max_roi = ((filtered_df['revenue'] - filtered_df['spend'])/filtered_df['spend']).max() * 100 if filtered_df['spend'].sum() else 0
-
-    # PDF generation
+    # ---------------- PDF ----------------
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(buffer)
     styles = getSampleStyleSheet()
     elements = []
 
-    # Logo
+    # 1️⃣ Logo
     try:
         logo = PILImage.open("logo.png")
         logo.save("temp_logo.png")
@@ -221,21 +226,42 @@ if st.button("Generate Enhanced Report"):
     except:
         pass
 
+    elements.append(Spacer(1,12))
+
+    # 2️⃣ Company Name
     elements.append(Paragraph(f"{report_company} – Marketing Intelligence Report", styles['Title']))
+    elements.append(Spacer(1,6))
+
+    # 3️⃣ Team Lead
     elements.append(Paragraph(f"Team Lead: {report_team_lead}", styles['Normal']))
     elements.append(Spacer(1,12))
 
-    # Add automated insights summary
+    # 4️⃣ Summary / Automated Insights
+    top_channel = filtered_df.groupby('channel')['revenue'].sum().idxmax()
+    best_day = filtered_df.groupby('date')['revenue'].sum().idxmax().strftime("%d-%b-%Y")
+    max_roi = ((filtered_df['revenue'] - filtered_df['spend'])/filtered_df['spend']).max() * 100 if filtered_df['spend'].sum() else 0
     summary_text = f"""
-    This report provides an overview of marketing performance between {start_date} and {end_date}.
-    ✅ Top Performing Channel: {top_channel}
-    ✅ Highest Revenue Day: {best_day}
+    This report summarizes marketing performance from {start_date} to {end_date}.  
+    ✅ Top Performing Channel: {top_channel}  
+    ✅ Highest Revenue Day: {best_day}  
     ✅ Maximum ROI Achieved: {max_roi:.2f}%
     """
     elements.append(Paragraph(summary_text, styles['Normal']))
     elements.append(Spacer(1,12))
 
-    # Add graphs
+    # 5️⃣ Campaigns Table
+    elements.append(Paragraph("📋 Campaign Data Table", styles['Heading2']))
+    table_data = [filtered_df.columns.tolist()] + filtered_df.values.tolist()
+    table = Table(table_data, hAlign='LEFT')
+    table.setStyle([
+        ('BACKGROUND',(0,0),(-1,0),colors.grey),
+        ('TEXTCOLOR',(0,0),(-1,0),colors.whitesmoke),
+        ('GRID',(0,0),(-1,-1),1,colors.black)
+    ])
+    elements.append(table)
+    elements.append(Spacer(1,12))
+
+    # 6️⃣ Graphs
     elements.append(Paragraph("📊 Impressions vs Clicks", styles['Heading2']))
     elements.append(Image(bar_path, width=400, height=250))
     elements.append(Spacer(1,12))
@@ -248,23 +274,14 @@ if st.button("Generate Enhanced Report"):
     elements.append(Image(line_path, width=400, height=250))
     elements.append(Spacer(1,12))
 
-    # Table
-    elements.append(Paragraph("📋 Campaign Data Table", styles['Heading2']))
-    table_data = [filtered_df.columns.tolist()] + filtered_df.values.tolist()
-    table = Table(table_data, hAlign='LEFT')
-    table.setStyle([
-        ('BACKGROUND',(0,0),(-1,0),colors.grey),
-        ('TEXTCOLOR',(0,0),(-1,0),colors.whitesmoke),
-        ('GRID',(0,0),(-1,-1),1,colors.black)
-    ])
-    elements.append(table)
-
+    # Build PDF
     doc.build(elements)
     buffer.seek(0)
+
     st.success("Report Generated Successfully ✅")
     st.download_button(
-        label="Download Enhanced PDF Report",
+        label="Download PDF Report",
         data=buffer,
-        file_name="Marketing_Enhanced_Report.pdf",
+        file_name="Marketing_Professional_Report.pdf",
         mime="application/pdf"
     )
