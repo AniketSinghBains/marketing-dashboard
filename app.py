@@ -1,17 +1,14 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
-import plotly.graph_objects as go
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, Image
 from reportlab.lib.styles import getSampleStyleSheet
 from reportlab.lib import colors
-from reportlab.graphics import renderPDF
-from reportlab.graphics.shapes import Drawing
-from reportlab.graphics.charts.barcharts import VerticalBarChart
 from datetime import datetime
 import pickle
 import io
 from PIL import Image as PILImage
+import matplotlib.pyplot as plt
 
 # ---------------- PAGE CONFIG ----------------
 st.set_page_config(page_title="Marketing Intelligence Suite", layout="wide")
@@ -69,11 +66,11 @@ st.markdown(f"""
 </div>
 """, unsafe_allow_html=True)
 
-# ---------------- LOAD CSV ----------------
+# ---------------- LOAD DATA ----------------
 df = pd.read_csv("campaigns.csv")
 df['date'] = pd.to_datetime(df['date'])
 
-# ---------------- SIDEBAR FILTERS ----------------
+# ---------------- FILTERS ----------------
 st.sidebar.markdown("## 🎛 Filters")
 channels = df['channel'].unique().tolist()
 selected_channel = st.sidebar.selectbox("Select Channel", ["All"] + channels)
@@ -82,11 +79,9 @@ start_date, end_date = st.sidebar.date_input(
     [df['date'].min(), df['date'].max()]
 )
 
-# Filter dataframe
 filtered_df = df[
     ((df['channel'] == selected_channel) | (selected_channel == "All")) &
-    (df['date'] >= pd.to_datetime(start_date)) &
-    (df['date'] <= pd.to_datetime(end_date))
+    (df['date'] >= pd.to_datetime(start_date)) & (df['date'] <= pd.to_datetime(end_date))
 ]
 
 # ---------------- KPIs ----------------
@@ -98,43 +93,44 @@ total_revenue = filtered_df['revenue'].sum()
 roi = ((total_revenue - total_spend)/total_spend)*100 if total_spend else 0
 
 st.subheader("📊 Funnel Overview")
-col1, col2, col3, col4, col5, col6 = st.columns(6)
+cols = st.columns(6)
 def kpi(title,value): st.markdown(f"<div class='kpi-card'><div class='kpi-title'>{title}</div><div class='kpi-value'>{value}</div></div>", unsafe_allow_html=True)
-with col1: kpi("Impressions", f"{total_impressions:,}")
-with col2: kpi("Clicks", f"{total_clicks:,}")
-with col3: kpi("Conversions", f"{total_conversions:,}")
-with col4: kpi("Spend", f"₹ {total_spend:,.0f}")
-with col5: kpi("Revenue", f"₹ {total_revenue:,.0f}")
-with col6: kpi("ROI (%)", f"{roi:.2f}%")
+with cols[0]: kpi("Impressions", f"{total_impressions:,}")
+with cols[1]: kpi("Clicks", f"{total_clicks:,}")
+with cols[2]: kpi("Conversions", f"{total_conversions:,}")
+with cols[3]: kpi("Spend", f"₹ {total_spend:,.0f}")
+with cols[4]: kpi("Revenue", f"₹ {total_revenue:,.0f}")
+with cols[5]: kpi("ROI (%)", f"{roi:.2f}%")
 
-# ---------------- GRAPHS ----------------
+# ---------------- INTERACTIVE GRAPHS ----------------
 st.markdown("---")
 st.subheader("📈 Campaign Analysis Charts")
 
-# 1️⃣ Bar Chart: Impressions vs Clicks
+# Bar chart
 bar_fig = px.bar(
     filtered_df.groupby('channel')[['impressions','clicks']].sum().reset_index(),
-    x='channel', y=['impressions','clicks'],
-    barmode='group', title="Impressions vs Clicks per Channel",
-    color_discrete_sequence=px.colors.qualitative.Pastel
+    x='channel', y=['impressions','clicks'], barmode='group',
+    color_discrete_sequence=px.colors.qualitative.Pastel,
+    title="Impressions vs Clicks per Channel"
 )
 st.plotly_chart(bar_fig, use_container_width=True)
 
-# 2️⃣ Donut Chart: Conversions distribution
-conv_fig = px.pie(
-    filtered_df, values='conversions', names='channel',
-    hole=0.5, title="Conversions Distribution by Channel",
-    color_discrete_sequence=px.colors.sequential.Agsunset
+# Donut chart
+donut_fig = px.pie(
+    filtered_df.groupby('channel')['conversions'].sum().reset_index(),
+    values='conversions', names='channel', hole=0.5,
+    color_discrete_sequence=px.colors.sequential.Agsunset,
+    title="Conversions Distribution by Channel"
 )
-st.plotly_chart(conv_fig, use_container_width=True)
+st.plotly_chart(donut_fig, use_container_width=True)
 
-# 3️⃣ Line Chart: Revenue trend
-rev_fig = px.line(
+# Line chart
+line_fig = px.line(
     filtered_df.groupby('date')['revenue'].sum().reset_index(),
-    x='date', y='revenue', title="Revenue Trend Over Time",
-    markers=True, line_shape='spline', color_discrete_sequence=['#00CC96']
+    x='date', y='revenue', markers=True, line_shape='spline', color_discrete_sequence=['#00CC96'],
+    title="Revenue Trend Over Time"
 )
-st.plotly_chart(rev_fig, use_container_width=True)
+st.plotly_chart(line_fig, use_container_width=True)
 
 # ---------------- AI FORECAST ----------------
 st.markdown("---")
@@ -157,52 +153,49 @@ if user["role"] == "Admin":
 else:
     st.warning("Only Admin can access AI Forecast")
 
-# ---------------- PDF REPORT WITH USER INPUT AND GRAPHS ----------------
+# ---------------- PDF REPORT ----------------
 st.markdown("---")
 st.subheader("📄 Generate Professional PDF Report")
 
-# Step 1: Ask for inputs before generating report
-report_company = st.text_input("Enter Company Name", value=user['company'])
-report_team_lead = st.text_input("Enter Team Lead Name", value=user['team_lead'])
+report_company = st.text_input("Enter Company Name for Report", value=user['company'])
+report_team_lead = st.text_input("Enter Team Lead Name for Report", value=user['team_lead'])
 
 if st.button("Generate Report"):
-    import matplotlib.pyplot as plt
-
-    # Create temporary graph images
+    # Temporary graph images for PDF
     bar_path = "temp_bar.png"
     donut_path = "temp_donut.png"
     line_path = "temp_line.png"
 
-    # Bar chart: Impressions vs Clicks
-    bar_fig, ax = plt.subplots(figsize=(6,4))
+    # Bar chart
+    plt.figure(figsize=(6,4))
     bar_data = filtered_df.groupby('channel')[['impressions','clicks']].sum()
-    bar_data.plot(kind='bar', ax=ax, color=['#1f77b4','#ff7f0e'])
-    ax.set_title("Impressions vs Clicks per Channel")
+    bar_data.plot(kind='bar', color=['#1f77b4','#ff7f0e'])
+    plt.title("Impressions vs Clicks per Channel")
     plt.tight_layout()
-    bar_fig.savefig(bar_path)
-    plt.close(bar_fig)
+    plt.savefig(bar_path)
+    plt.close()
 
-    # Donut chart: Conversions distribution
-    donut_fig, ax = plt.subplots(figsize=(6,4))
+    # Donut chart
+    plt.figure(figsize=(6,4))
     donut_data = filtered_df.groupby('channel')['conversions'].sum()
-    ax.pie(donut_data, labels=donut_data.index, autopct='%1.1f%%', startangle=90, wedgeprops={'width':0.4})
-    ax.set_title("Conversions Distribution by Channel")
+    plt.pie(donut_data, labels=donut_data.index, autopct='%1.1f%%', startangle=90, wedgeprops={'width':0.4})
+    plt.title("Conversions Distribution by Channel")
     plt.tight_layout()
-    donut_fig.savefig(donut_path)
-    plt.close(donut_fig)
+    plt.savefig(donut_path)
+    plt.close()
 
-    # Line chart: Revenue trend
-    line_fig, ax = plt.subplots(figsize=(6,4))
+    # Line chart
+    plt.figure(figsize=(6,4))
     rev_data = filtered_df.groupby('date')['revenue'].sum()
-    ax.plot(rev_data.index, rev_data.values, marker='o', color='#2ca02c')
-    ax.set_title("Revenue Trend Over Time")
-    ax.set_ylabel("Revenue")
+    plt.plot(rev_data.index, rev_data.values, marker='o', color='#2ca02c')
+    plt.title("Revenue Trend Over Time")
+    plt.ylabel("Revenue")
     plt.xticks(rotation=45)
     plt.tight_layout()
-    line_fig.savefig(line_path)
-    plt.close(line_fig)
+    plt.savefig(line_path)
+    plt.close()
 
-    # Generate PDF
+    # Build PDF
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(buffer)
     styles = getSampleStyleSheet()
@@ -233,7 +226,7 @@ if st.button("Generate Report"):
     elements.append(Image(line_path, width=400, height=250))
     elements.append(Spacer(1,12))
 
-    # Campaign table
+    # Campaign Table
     elements.append(Paragraph("📋 Campaign Data Table", styles['Heading2']))
     table_data = [filtered_df.columns.tolist()] + filtered_df.values.tolist()
     table = Table(table_data, hAlign='LEFT')
