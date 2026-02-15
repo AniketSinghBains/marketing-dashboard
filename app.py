@@ -2,7 +2,6 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
-from sqlalchemy import create_engine
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table
 from reportlab.lib.styles import getSampleStyleSheet
 from datetime import datetime
@@ -69,7 +68,7 @@ footer {visibility:hidden;}
 """, unsafe_allow_html=True)
 
 # =========================================================
-# 🏢 PROFESSIONAL DYNAMIC HEADER (STEP 3)
+# 🏢 PROFESSIONAL DYNAMIC HEADER
 # =========================================================
 st.markdown(f"""
 <div style='padding:10px 0px'>
@@ -79,71 +78,48 @@ st.markdown(f"""
 """, unsafe_allow_html=True)
 
 # =========================================================
-# 🗄 DATABASE CONNECTION
+# 🗄 LOAD DATA FROM CSV (INSTEAD OF SQL SERVER)
 # =========================================================
-server = "localhost\\SQLEXPRESS"
-database = "marketing_mis"
+# campaigns.csv should be in repo root
+df = pd.read_csv("campaigns.csv")
 
-connection_string = (
-    f"mssql+pyodbc://@{server}/{database}"
-    "?driver=ODBC+Driver+17+for+SQL+Server"
-    "&trusted_connection=yes"
-)
-
-engine = create_engine(connection_string)
+# Filter only for the logged-in user's company
+df = df[df['campaign_id'].notnull()]  # optional safety
 
 # =========================================================
 # 🎛 SIDEBAR FILTERS
 # =========================================================
 st.sidebar.markdown("## 🎛 Executive Controls")
 
-channel_query = f"""
-SELECT DISTINCT channel 
-FROM dbo.campaigns
-WHERE company = '{user['company']}'
-"""
-channel_list = pd.read_sql(channel_query, engine)['channel'].tolist()
+# Channel Filter
+channels = df['channel'].unique().tolist()
+selected_channel = st.sidebar.selectbox("Select Channel", ["All"] + channels)
 
-selected_channel = st.sidebar.selectbox("Select Channel", ["All"] + channel_list)
-
-date_query = f"""
-SELECT MIN(date) as min_date, MAX(date) as max_date
-FROM dbo.campaigns
-WHERE company = '{user['company']}'
-"""
-date_df = pd.read_sql(date_query, engine)
-
-min_date = pd.to_datetime(date_df['min_date'][0])
-max_date = pd.to_datetime(date_df['max_date'][0])
-
+# Date Filter
+df['date'] = pd.to_datetime(df['date'])
+min_date = df['date'].min()
+max_date = df['date'].max()
 start_date, end_date = st.sidebar.date_input("Select Date Range", [min_date, max_date])
 
 # =========================================================
-# 🏢 COMPANY FILTER LOGIC (STEP 2 - Multi Tenant)
+# 🏢 FILTER LOGIC
 # =========================================================
+filtered_df = df.copy()
 
-company_filter = f"company = '{user['company']}'"
+# Channel filter
+if selected_channel != "All":
+    filtered_df = filtered_df[filtered_df['channel'] == selected_channel]
 
-if selected_channel == "All":
-    filter_condition = f"{company_filter} AND date BETWEEN '{start_date}' AND '{end_date}'"
-else:
-    filter_condition = f"{company_filter} AND channel='{selected_channel}' AND date BETWEEN '{start_date}' AND '{end_date}'"
+# Date range filter
+filtered_df = filtered_df[(filtered_df['date'] >= pd.to_datetime(start_date)) &
+                          (filtered_df['date'] <= pd.to_datetime(end_date))]
 
 # =========================================================
 # 📊 FUNNEL DATA
 # =========================================================
-funnel_query = f"""
-SELECT SUM(impressions) as impressions,
-       SUM(clicks) as clicks,
-       SUM(conversions) as conversions
-FROM dbo.campaigns
-WHERE {filter_condition}
-"""
-funnel_df = pd.read_sql(funnel_query, engine)
-
-impressions = funnel_df['impressions'][0] or 0
-clicks = funnel_df['clicks'][0] or 0
-conversions = funnel_df['conversions'][0] or 0
+impressions = filtered_df['impressions'].sum()
+clicks = filtered_df['clicks'].sum()
+conversions = filtered_df['conversions'].sum()
 
 # KPI Cards
 st.subheader("📊 Funnel Overview")
@@ -168,7 +144,6 @@ st.markdown("---")
 st.subheader("🤖 AI Revenue Forecast")
 
 if user["role"] == "Admin":
-
     model = pickle.load(open("roi_model.pkl","rb"))
 
     col7,col8,col9 = st.columns(3)
